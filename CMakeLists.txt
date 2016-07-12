@@ -6,13 +6,16 @@ project(cups-pjl-monitor C)
 
 find_package(CUPS REQUIRED)
 
-add_executable(pjl
-    src/pjl.c
+add_executable(monitor
+    src/main.c
 )
-target_link_libraries(pjl CUPS)
+target_link_libraries(monitor CUPS)
+set_target_properties(monitor PROPERTIES
+    OUTPUT_NAME pjl
+)
 
 install(
-    TARGETS pjl RUNTIME
+    TARGETS monitor RUNTIME
     DESTINATION "${CUPS_SERVERBIN}/monitor"
     PERMISSIONS
         OWNER_READ OWNER_EXECUTE OWNER_WRITE
