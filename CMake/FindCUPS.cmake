@@ -2,31 +2,115 @@
 # FindCUPS
 # --------
 #
-# Try to find the Cups printing system
+# Tries to find ``libcups``, the API for the C UNIX Printing System (CUPS).
+# An imported target called ``CUPS`` will be defined along with these variables:
 #
-# Once done this will define
+# .. variable:: CUPS_FOUND
+#    Set if CUPS was found.
 #
-# ::
+# .. variable:: CUPS_VERSION
+#    The full version number of the CUPS installation as a string.
+#    Provided by ``cups-config --version``.
 #
-#   CUPS_FOUND - system has Cups
-#   CUPS_INCLUDE_DIR - the Cups include directory
-#   CUPS_LIBRARIES - Libraries needed to use Cups
-#   CUPS_VERSION_STRING - version of Cups found (since CMake 2.8.8)
-#   Set CUPS_REQUIRE_IPP_DELETE_ATTRIBUTE to TRUE if you need a version which
-#   features this function (i.e. at least 1.1.19)
+# .. variable:: CUPS_VERSION_STRING
+#    This variable is provided for backwards compatibility.
+#    :variable:`CUPS_VERSION` should be used instead.
+#
+#
+# .. variable:: CUPS_CFLAGS
+#    The compiler options necessary for source files which include CUPS headers
+#    as a space-delimited string.
+#    Provided by ``cups-config --cflags``.
+#    Projects should generally use
+#      :variable:`CUPS_INCLUDE_DIRS` and
+#      :variable:`CUPS_CFLAGS_OTHER`
+#    instead.
+#
+# .. variable:: CUPS_INCLUDE_DIRS
+#    A list of include directories needed for the CUPS headers. This
+#    will always have at least one value even if the headers are all on the
+#    system include path.
+#
+# .. variable:: CUPS_CFLAGS_OTHER
+#    A list of any compiler options from :variable:`CUPS_CFLAGS` not
+#    reflected in :variable:`CUPS_INCLUDE_DIRS`.
+#
+# .. variable:: CUPS_INCLUDE_DIR
+#    The include directory containing ``cups/cups.h``.
+#    This variable is provided for backwards compatibility.
+#    :variable:`CUPS_INCLUDE_DIRS` should be used instead.
+#
+#
+# .. variable:: CUPS_LDFLAGS
+#    The linker options necessary to link with CUPS as a space-delimited string.
+#    Provided by ``cups-config --ldflags --libs``.
+#    Projects should generally use either
+#      :variable:`CUPS_LINK_LIBRARIES`
+#    or
+#      :variable:`CUPS_LIBRARIES`,
+#      :variable:`CUPS_LIB_DIRS`, and
+#      :variable:`CUPS_LDFLAGS_OTHER`
+#    instead.
+#
+# .. variable:: CUPS_LIBRARIES
+#    A list of libraries needed to link with CUPS.
+#
+# .. variable:: CUPS_LIB_DIRS
+#    A list of library directories needed for the libraries in
+#    :variable:`CUPS_LIBRARIES`. This may be empty if all needed libraries are
+#    on the system library path.
+#
+# .. variable:: CUPS_LDFLAGS_OTHER
+#    A list of any linker options from :variable:`CUPS_LDFLAGS` not reflected in
+#    :variable:`CUPS_LIBRARIES` or :variable:`CUPS_LIB_DIRS`.
+#
+# .. variable:: CUPS_LINK_LIBRARIES
+#    :variable:`CUPS_LDFLAGS` reformatted as a list suitable for use with the
+#    :command:`target_link_libraries` command or in the
+#    :prop_tgt:`LINK_LIBRARIES` target property.
+#
+#
+# .. variable:: CUPS_DATADIR
+#    The default CUPS data directory.
+#    Provided by ``cups-config --datadir``.
+#
+# .. variable:: CUPS_SERVERBIN
+#    The CUPS binary directory where filters and backends are kept.
+#    Provided by ``cups-config --serverbin``.
+#
+# .. variable:: CUPS_SERVERROOT
+#    The default CUPS configuration file directory.
+#    Provided by ``cups-config --serverroot``.
 
 #=============================================================================
 # Copyright 2016 Sam Hanes <sam@maltera.com>
 #
-# Distributed under the OSI-approved BSD License (the "License");
-# see accompanying file COPYING.txt for details.
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
 #
-# This software is distributed WITHOUT ANY WARRANTY; without even the
-# implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-# See the License for more information.
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its
+#    contributors may be used to endorse or promote products derived from
+#    this software without specific prior written permission.
+#
+# This software is provided by the copyright holders and contributors "as
+# is" and any express or implied warranties, including, but not limited
+# to, the implied warranties of merchantability and fitness for a
+# particular purpose are disclaimed. In no event shall the copyright
+# holder or contributors be liable for any direct, indirect, incidental,
+# special, exemplary, or consequential damages (including, but not limited
+# to, procurement of substitute goods or services; loss of use, data, or
+# profits; or business interruption) however caused and on any theory of
+# liability, whether in contract, strict liability, or tort (including
+# negligence or otherwise) arising in any way out of the use of this
+# software, even if advised of the possibility of such damage.
 #=============================================================================
-# (To distribute this file outside of CMake, substitute the full
-#  License text for the above reference.)
 
 cmake_minimum_required(VERSION 2.8)
 
@@ -60,10 +144,8 @@ if(CUPS_CONFIG_EXECUTABLE)
     foreach(flag IN LISTS _cups_cflags)
         if(flag MATCHES "^-I(.+)$")
             list(APPEND CUPS_INCLUDE_DIRS "${CMAKE_MATCH_1}")
-            message("INCLUDE_DIR '${CMAKE_MATCH_1}'")
         else()
             list(APPEND CUPS_CFLAGS_OTHER "${flag}")
-            message("CFLAG '${flag}'")
         endif()
     endforeach()
     unset(_cups_cflags)
@@ -77,15 +159,12 @@ if(CUPS_CONFIG_EXECUTABLE)
         elseif(flag MATCHES "^-l(.+)$")
             list(APPEND CUPS_LIBRARIES "${CMAKE_MATCH_1}")
             list(APPEND CUPS_LINK_LIBRARIES "${CMAKE_MATCH_1}")
-            message("LIB '${CMAKE_MATCH_1}'")
         elseif(flag MATCHES "^-L(.+)$")
             list(APPEND CUPS_LIB_DIRS "${CMAKE_MATCH_1}")
             list(APPEND CUPS_LINK_LIBRARIES "${flag}")
-            message("LIB_DIR '${CMAKE_MATCH_1}'")
         else()
             list(APPEND CUPS_LDFLAGS_OTHER "${flag}")
             list(APPEND CUPS_LINK_LIBRARIES "${flag}")
-            message("LDFLAG '${flag}'")
         endif()
     endforeach()
     unset(_cups_ldflags)
@@ -128,13 +207,6 @@ find_package_handle_standard_args(CUPS
 
 
 if(CUPS_FOUND)
-    message(
-        "IMPORTED_LOCATION '${CUPS_LIBRARY}'\n"
-        "INTERFACE_INCLUDE_DIRECTORIES '${CUPS_INCLUDE_DIRS}'\n"
-        "INTERFACE_COMPILE_OPTIONS '${CUPS_CFLAGS_OTHER}'\n"
-        "INTERFACE_LINK_LIBRARIES '${CUPS_LINK_LIBRARIES}'\n"
-    )
-
     add_library(CUPS SHARED IMPORTED)
     set_target_properties(CUPS PROPERTIES
         IMPORTED_LOCATION "${CUPS_LIBRARY}"
