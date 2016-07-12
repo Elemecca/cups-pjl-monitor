@@ -42,12 +42,12 @@ function(_cups_config outvar)
         ERROR_QUIET
     )
 
-    string(STRIP ${output} output)
+    string(STRIP "${output}" output)
 
     if(NOT result EQUAL 0)
-        set(${outvar} "${outvar}-NOTFOUND" PARENT_SCOPE)
+        set("${outvar}" "${outvar}-NOTFOUND" PARENT_SCOPE)
     else()
-        set(${outvar} ${output} PARENT_SCOPE)
+        set("${outvar}" "${output}" PARENT_SCOPE)
     endif()
 endfunction()
 
@@ -56,36 +56,45 @@ if(CUPS_CONFIG_EXECUTABLE)
     set(CUPS_VERSION_STRING "${CUPS_VERSION}")
 
     _cups_config(CUPS_CFLAGS "--cflags")
-    foreach(flag ${CUPS_CFLAGS})
-        message("CFLAG '${flag}'")
+    string(REPLACE " " ";" _cups_cflags "${CUPS_CFLAGS}")
+    foreach(flag IN LISTS _cups_cflags)
         if(flag MATCHES "^-I(.+)$")
-            list(APPEND CUPS_INCLUDE_DIRS ${CMAKE_MATCH_1})
+            list(APPEND CUPS_INCLUDE_DIRS "${CMAKE_MATCH_1}")
+            message("INCLUDE_DIR '${CMAKE_MATCH_1}'")
         else()
-            string(APPEND CUPS_CFLAGS_OTHER " ${flag}")
+            list(APPEND CUPS_CFLAGS_OTHER "${flag}")
+            message("CFLAG '${flag}'")
         endif()
     endforeach()
+    unset(_cups_cflags)
 
-    _cups_config(CUPS_LDFLAGS "--ldflags")
-    _cups_config(CUPS_LIBS    "--libs")
-    foreach(flag ${CUPS_LDFLAGS} ${CUPS_LIBS})
-        message("LDFLAG '${flag}'")
+    _cups_config(CUPS_LDFLAGS "--ldflags" "--libs")
+    string(REPLACE "\n" " " CUPS_LDFLAGS "${CUPS_LDFLAGS}")
+    string(REPLACE " " ";" _cups_ldflags "${CUPS_LDFLAGS}")
+    foreach(flag IN LISTS _cups_ldflags)
         if(flag STREQUAL "-lcups")
             # ignore, this is added later
         elseif(flag MATCHES "^-l(.+)$")
-            list(APPEND CUPS_LIBRARIES ${CMAKE_MATCH_1})
+            list(APPEND CUPS_LIBRARIES "${CMAKE_MATCH_1}")
+            list(APPEND CUPS_LINK_LIBRARIES "${CMAKE_MATCH_1}")
             message("LIB '${CMAKE_MATCH_1}'")
         elseif(flag MATCHES "^-L(.+)$")
-            list(APPEND CUPS_LIB_DIRS ${CMAKE_MATCH_1})
+            list(APPEND CUPS_LIB_DIRS "${CMAKE_MATCH_1}")
+            list(APPEND CUPS_LINK_LIBRARIES "${flag}")
             message("LIB_DIR '${CMAKE_MATCH_1}'")
         else()
-            string(APPEND CUPS_LDFLAGS_OTHER " ${flag}")
+            list(APPEND CUPS_LDFLAGS_OTHER "${flag}")
+            list(APPEND CUPS_LINK_LIBRARIES "${flag}")
+            message("LDFLAG '${flag}'")
         endif()
     endforeach()
+    unset(_cups_ldflags)
 
     _cups_config(CUPS_DATADIR    "--datadir")
     _cups_config(CUPS_SERVERBIN  "--serverbin")
     _cups_config(CUPS_SERVERROOT "--serverroot")
 endif()
+unset(_cups_config)
 
 
 find_library(CUPS_LIBRARY
@@ -108,21 +117,29 @@ if(CUPS_INCLUDE_DIR)
 endif()
 
 
-set(CUPS_FLAGS_OTHER "${CUPS_CFLAGS_OTHER} ${CUPS_LDFLAGS_OTHER}")
-string(STRIP ${CUPS_FLAGS_OTHER} CUPS_FLAGS_OTHER)
-
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(CUPS
-    REQUIRED_VARS CUPS_LIBRARY CUPS_INCLUDE_DIR
+    REQUIRED_VARS
+        CUPS_LIBRARY
+        CUPS_INCLUDE_DIR
+        CUPS_VERSION
     VERSION_VAR CUPS_VERSION
 )
 
 
 if(CUPS_FOUND)
+    message(
+        "IMPORTED_LOCATION '${CUPS_LIBRARY}'\n"
+        "INTERFACE_INCLUDE_DIRECTORIES '${CUPS_INCLUDE_DIRS}'\n"
+        "INTERFACE_COMPILE_OPTIONS '${CUPS_CFLAGS_OTHER}'\n"
+        "INTERFACE_LINK_LIBRARIES '${CUPS_LINK_LIBRARIES}'\n"
+    )
+
     add_library(CUPS SHARED IMPORTED)
     set_target_properties(CUPS PROPERTIES
         IMPORTED_LOCATION "${CUPS_LIBRARY}"
-        INTERFACE_LINK_LIBRARIES "${CUPS_LIBRARIES}"
-        INTERFACE_COMPILE_OPTIONS "${CUPS_FLAGS_OTHER}"
+        INTERFACE_INCLUDE_DIRECTORIES "${CUPS_INCLUDE_DIRS}"
+        INTERFACE_COMPILE_OPTIONS "${CUPS_CFLAGS_OTHER}"
+        INTERFACE_LINK_LIBRARIES "${CUPS_LINK_LIBRARIES}"
     )
 endif()
