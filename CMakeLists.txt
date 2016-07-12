@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8)
 
 list(APPEND CMAKE_MODULE_PATH CMake)
 
-project(cups-pjl-monitor LANGUAGES C)
+project(cups-pjl-monitor C)
 
 find_package(CUPS)
 
