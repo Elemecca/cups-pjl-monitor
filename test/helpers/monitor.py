@@ -3,6 +3,7 @@
 import os, sys
 import asyncore
 import resource
+import signal
 
 class StringDispatcher(asyncore.file_dispatcher):
     def __init__(self, fd, string, **kwargs):
@@ -50,7 +51,10 @@ class StderrDispatcher(asyncore.file_dispatcher):
 
 class Monitor(object):
 
-    def __init__(self, instr = None, infile = None, copies = 1):
+    def __init__(self, instr = None, infile = None, copies = 1, timeout = 15):
+        self._timeout = timeout
+        self._timed_out = False
+
         monitor_exec = os.getenv('TEST_MONITOR_EXEC')
         if monitor_exec is None:
             raise IOError('TEST_MONITOR_EXEC is not set')
@@ -128,12 +132,28 @@ class Monitor(object):
         os.close(stderr_r)
         os.close(bchan_w)
 
-
     def wait(self):
-        waitpid = 0
-        while waitpid == 0:
-            asyncore.loop(0.1, False, self._chanmap, 1)
-            (waitpid, status) = os.waitpid(self._pid, os.WNOHANG)
+        old = None
+        if self._timeout > 0:
+            def handler(signum, frame):
+                self._timed_out = True
+
+            old = signal.signal(signal.SIGALRM, handler)
+            signal.setitimer(signal.ITIMER_REAL, self._timeout)
+
+        try:
+            waitpid = 0
+            while waitpid == 0:
+                asyncore.loop(0.1, False, self._chanmap, 1)
+                (waitpid, status) = os.waitpid(self._pid, os.WNOHANG)
+
+                if self._timed_out and waitpid == 0:
+                    os.kill(self._pid, signal.SIGKILL)
+
+        finally:
+            if old is not None:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+                signal.signal(signal.SIGALRM, old)
 
         # stdin may have been closed already
         if self._stdin is not None:
@@ -144,14 +164,21 @@ class Monitor(object):
 
         self._bchan.close()
 
+
         if status != 0:
             if os.WIFSIGNALED(status):
-                raise IOError(
-                        'monitor killed by signal %d'
-                            % os.WTERMSIG(status)
-                    )
+                if self._timed_out and os.WTERMSIG(status) == signal.SIGKILL:
+                    raise AssertionError(
+                            'monitor execution timed out after %0.2fs'
+                                % self._timeout
+                        )
+                else:
+                    raise AssertionError(
+                            'monitor killed by signal %d'
+                                % os.WTERMSIG(status)
+                        )
             else:
-                raise IOError(
+                raise AssertionError(
                         'monitor exited with status %d'
                             % os.WEXITSTATUS(status)
                     )
