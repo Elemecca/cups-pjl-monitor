@@ -50,31 +50,44 @@ class StderrDispatcher(asyncore.file_dispatcher):
 
 class Monitor(object):
 
-    def __init__(self, instr = None, copies = 1):
+    def __init__(self, instr = None, infile = None, copies = 1):
         monitor_exec = os.getenv('TEST_MONITOR_EXEC')
         if monitor_exec is None:
-            raise IOError('TEXT_MONITOR_EXEC is not set')
+            raise IOError('TEST_MONITOR_EXEC is not set')
         if not os.path.isfile(monitor_exec):
             raise IOError('TEST_MONITOR_EXEC file not found')
 
+        if infile is not None:
+            if instr is not None:
+                raise ValueError('instr and infile are mutually exclusive')
+            if not os.path.isfile(infile):
+                raise IOError('infile does not exist')
+        elif instr is None:
+            raise ValueError('either instr or infile is required')
 
-        device_uri = 'socket://printer:9100'
-        args = [ device_uri, '1', 'lpr', 'test-job', str(copies), '' ]
+        args = [ 'pjl', '1', 'lpr', 'test-job', str(copies), '' ]
         env = {
-                'DEVICE_URI': device_uri,
+                'DEVICE_URI': 'socket://printer:9100',
                 'PRINTER': 'test-printer',
                 'FINAL_CONTENT_TYPE': 'application/vnd.cups-postscript',
             }
 
-        (stdin_r,  stdin_w)  = os.pipe()
+        if infile is not None:
+            args.append(infile)
+        else:
+            (stdin_r, stdin_w) = os.pipe()
+
         (stdout_r, stdout_w) = os.pipe()
         (stderr_r, stderr_w) = os.pipe()
         (bchan_r,  bchan_w)  = os.pipe()
 
         self._pid = os.fork()
         if self._pid == 0:
-            # hook up the pipes
-            os.dup2(stdin_r,  0)
+            if infile is not None:
+                os.close(0)
+            else:
+                os.dup2(stdin_r,  0)
+
             os.dup2(stdout_w, 1)
             os.dup2(stderr_w, 2)
             os.dup2(bchan_r,  3)
@@ -91,21 +104,30 @@ class Monitor(object):
 
             os.execve(monitor_exec, args, env)
 
-        os.close(stdin_r)
+        if infile is None:
+            os.close(stdin_r)
         os.close(stdout_w)
         os.close(bchan_r)
 
         self._chanmap = dict()
-        self._stdin  = StringDispatcher(stdin_w, instr, map=self._chanmap)
+
+        if infile is None:
+            self._stdin = StringDispatcher(stdin_w, instr, map=self._chanmap)
+        else:
+            self._stdin = None
+
         self._stdout = BufferDispatcher(stdout_r, map=self._chanmap)
         self._stderr = StderrDispatcher(stderr_r, map=self._chanmap)
         self._bchan  = StringDispatcher(bchan_w, '')
 
         # asyncore dup()s the FDs passed to its constructors
         # so we need to clean up the originals or the pipes won't close
-        os.close(stdin_w)
+        if infile is None:
+            os.close(stdin_w)
         os.close(stdout_r)
         os.close(stderr_r)
+        os.close(bchan_w)
+
 
     def wait(self):
         waitpid = 0
@@ -114,10 +136,11 @@ class Monitor(object):
             (waitpid, status) = os.waitpid(self._pid, os.WNOHANG)
 
         # stdin may have been closed already
-        try:
-            self._stdin.close()
-        except OSError:
-            pass;
+        if self._stdin is not None:
+            try:
+                self._stdin.close()
+            except OSError:
+                pass;
 
         self._bchan.close()
 
