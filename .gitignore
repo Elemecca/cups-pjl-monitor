@@ -6,4 +6,4 @@ Makefile
 
 # build output
 /pjl
-/test/*.pyc
+*.pyc
