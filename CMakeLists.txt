@@ -32,7 +32,6 @@ if(BUILD_TESTING)
             "${PYTHON_EXECUTABLE}"
             -m unittest
             discover -s test -v -b
-        USES_TERMINAL
     )
 endif()
 

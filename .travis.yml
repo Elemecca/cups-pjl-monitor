@@ -1,0 +1,20 @@
+language: c
+compiler: gcc
+
+addons:
+  # install dependencies from APT
+  apt:
+    packages:
+      - libcups2-dev
+
+# build with CMake
+script:
+  - cmake -Werror=dev .            # configure
+  - cmake --build . --clean-first  # build
+  - cmake --build . --target check # test
+
+# skip the install step entirely
+install: true
+
+# allow building in the new container environment
+sudo: false

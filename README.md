@@ -1,5 +1,7 @@
 # CUPS PJL Status Monitor
 
+[![Build Status](https://travis-ci.org/Elemecca/cups-pjl-monitor.svg?branch=master)](https://travis-ci.org/Elemecca/cups-pjl-monitor)
+
 This project provides a plugin for [CUPS][cups-home] that enables job
 status monitoring for printers that support [HP PJL][pjl] including job
 and page completion notifications.
