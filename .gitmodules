@@ -1,3 +1,0 @@
-[submodule "external/libtap"]
-	path = external/libtap
-	url = git://github.com/zorgnax/libtap.git

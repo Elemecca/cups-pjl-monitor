@@ -22,19 +22,18 @@ set_target_properties(monitor PROPERTIES
 
 option(BUILD_TESTING "Whether to build the test files" ON)
 if(BUILD_TESTING)
-    find_program(PROVE_EXECUTABLE prove)
+    find_package(PythonInterp REQUIRED VERSION 2.7)
+    find_program(ENV_EXECUTABLE env)
 
     add_custom_target(check
         VERBATIM COMMAND
-            "${PROVE_EXECUTABLE}"
-            "--exec" "" # our tests are compiled, call them directly
-            "--shuffle"
-            "--state" "save"
-            "test/"
+            "${ENV_EXECUTABLE}"
+            "TEST_MONITOR_EXEC=$<TARGET_FILE:monitor>"
+            "${PYTHON_EXECUTABLE}"
+            -m unittest
+            discover -s test -v -b
         USES_TERMINAL
     )
-
-    add_subdirectory(test)
 endif()
 
 
