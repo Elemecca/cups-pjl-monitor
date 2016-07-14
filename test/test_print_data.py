@@ -4,9 +4,11 @@ import os, sys
 import tempfile
 import unittest
 
+from helpers import TestCaseHelper
 from helpers.monitor import Monitor
 
-class TestPrintData(unittest.TestCase):
+class TestPrintData(TestCaseHelper, unittest.TestCase):
+    longMessage = True
 
     def test_stdin_through(self):
         # test with a random 64k binary string
@@ -16,7 +18,7 @@ class TestPrintData(unittest.TestCase):
         monitor = Monitor(instr=instr)
         monitor.wait()
 
-        self.assertEqual(monitor.stdout(), instr,
+        self.assertEqual(instr, monitor.stdout(),
                 msg='stdout does not match stdin'
             )
 
@@ -32,6 +34,6 @@ class TestPrintData(unittest.TestCase):
         monitor = Monitor(infile=temp.name)
         monitor.wait()
 
-        self.assertEqual(monitor.stdout(), instr,
-                msg='stdout does not match stdin'
+        self.assertEqual(instr, monitor.stdout(),
+                msg='stdout does not match the input file'
             )
