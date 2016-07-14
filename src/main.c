@@ -95,6 +95,7 @@ int main (int argc, char *argv[]) {
         nfds = backchannel_fd;
     if (print_fd > nfds)
         nfds = print_fd;
+    nfds++; // nfds is a count, not an index
 
     print_sending = 1;
     while (print_sending || print_bytes > 0) {
@@ -121,7 +122,7 @@ int main (int argc, char *argv[]) {
             // bail immediately unless the error is transient
             if (errno != EINTR) {
                 fprintf(stderr,
-                        "DEBUG: select failed: %s\n",
+                        "DEBUG: pjl: select failed: %s\n",
                         strerror(errno)
                     );
                 fprintf(stderr, "ERROR: Unable to read print data.\n");
@@ -137,14 +138,16 @@ int main (int argc, char *argv[]) {
 
 
         // read print data into the buffer
-        if (print_bytes == 0 && FD_ISSET(print_fd, &readfds)) {
+        // we don't care if print_fd was selected:
+        //   if we can't read yet read() will just return immediately
+        if (print_bytes == 0 && print_sending) {
             bytes = read(print_fd, print_buffer, sizeof(print_buffer));
             if (bytes < 0) {
                 // read error
                 // bail immediately unless the error is transient
                 if (errno != EAGAIN && errno != EINTR) {
                     fprintf(stderr,
-                            "DEBUG: read failed: %s\n",
+                            "DEBUG: pjl: read failed: %s\n",
                             strerror(errno)
                         );
                     fprintf(stderr, "ERROR: Unable to read print data.\n");
@@ -153,11 +156,12 @@ int main (int argc, char *argv[]) {
             } else if (bytes == 0) {
                 // end of file
                 if (--copies > 0) {
+                    fprintf(stderr, "DEBUG: seeking for next copy\n");
                     // we have more copies to print
                     // seek back to the beginning of the input
                     if (lseek(print_fd, 0, SEEK_SET) < 0) {
                         fprintf(stderr,
-                                "DEBUG: seek for copies failed: %s\n",
+                                "DEBUG: pjl: seek for copies failed: %s\n",
                                 strerror(errno)
                             );
                         fprintf(stderr, "ERROR: Unable to read print data.\n");
@@ -165,10 +169,14 @@ int main (int argc, char *argv[]) {
                     }
                 } else {
                     // we're out of copies (or reading from a pipe)
+                    fprintf(stderr, "DEBUG: pjl: done reading print data\n");
                     print_sending = 0;
                 }
             } else {
                 // all good - get the buffer ready to write
+#             ifdef DEBUG
+                fprintf(stderr, "DEBUG2: pjl: read %d print bytes\n", bytes);
+#             endif
                 print_bytes = bytes;
                 print_ptr = print_buffer;
             }
@@ -185,7 +193,7 @@ int main (int argc, char *argv[]) {
                 // bail immediately unless the error is transient
                 if (errno != EAGAIN && errno != EINTR) {
                     fprintf(stderr,
-                            "DEBUG: write failed: %s\n",
+                            "DEBUG: pjl: write failed: %s\n",
                             strerror(errno)
                         );
                     fprintf(stderr, "ERROR: Unable to write print data.\n");
@@ -193,6 +201,9 @@ int main (int argc, char *argv[]) {
                 }
             } else {
                 // all good - update buffer state
+#             ifdef DEBUG
+                fprintf(stderr, "DEBUG2: pjl: wrote %d print bytes\n", bytes);
+#             endif
                 print_bytes -= bytes;
                 print_ptr += bytes;
             }
