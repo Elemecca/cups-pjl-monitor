@@ -6,4 +6,5 @@ Makefile
 
 # build output
 /pjl
+/gen/
 *.pyc

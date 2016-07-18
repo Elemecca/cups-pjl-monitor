@@ -16,12 +16,16 @@
  */
 
 #include <unistd.h>
+#include <stdint.h>
 #include <fcntl.h>
 #include <sys/select.h>
 #include <signal.h>
 #include <errno.h>
 #include <stdio.h>
 #include <cups/cups.h>
+
+#include "status.h"
+#include "status.yy.h"
 
 static int job_canceled = 0;
 static void cancel_job (int sig) {
@@ -37,20 +41,39 @@ static void cancel_job (int sig) {
 #  define PRINT_BUF_LEN 8192
 #endif
 
+#define UEL "\033%-12345X"
+
+
+void yyerror (status_report_t *status, const char const *msg) {
+    fprintf(stderr, "DEBUG: pjl: status parser error: %s\n", msg);
+}
+
 int main (int argc, char *argv[]) {
     int print_fd;
     int device_fd = STDOUT_FILENO;
-    int backchannel_fd = CUPS_BC_FD;
+    int status_fd = CUPS_BC_FD;
     int copies;
+
+    int result;
 
     int nfds;
     fd_set readfds, writefds;
+    size_t bytes = 0;
 
     int print_sending = 0;
-    char print_buffer[PRINT_BUF_LEN];
-    char *print_ptr = print_buffer;
-    size_t bytes = 0;
+    uint8_t print_buffer[PRINT_BUF_LEN];
+    uint8_t *print_ptr = print_buffer;
     size_t print_bytes = 0;
+
+    uint8_t status_buffer[PRINT_BUF_LEN];
+    uint8_t *status_ptr = status_buffer;
+    size_t status_bytes = 0;
+
+    yypstate *parser;
+    status_report_t status;
+    int input_char;
+    YYSTYPE input_val;
+
 
     // ensure status messages are not buffered
     setbuf(stderr, NULL);
@@ -83,16 +106,23 @@ int main (int argc, char *argv[]) {
         }
     }
 
+    parser = yypstate_new();
+    if (NULL == parser) {
+        fprintf(stderr, "DEBUG: pjl: error initializing status parser\n");
+        fprintf(stderr, "ERROR: internal error in PJL filter\n");
+        return 1;
+    }
+
     fprintf(stderr, "DEBUG: PJL port monitor running.\n");
 
     SET_NONBLOCK(device_fd)
     SET_NONBLOCK(print_fd)
-    SET_NONBLOCK(backchannel_fd)
+    SET_NONBLOCK(status_fd)
 
     // determine the highest FD for select
     nfds = device_fd;
-    if (backchannel_fd > nfds)
-        nfds = backchannel_fd;
+    if (status_fd > nfds)
+        nfds = status_fd;
     if (print_fd > nfds)
         nfds = print_fd;
     nfds++; // nfds is a count, not an index
@@ -102,8 +132,8 @@ int main (int argc, char *argv[]) {
         FD_ZERO(&readfds);
         FD_ZERO(&writefds);
 
-        // always resume when backchannel data is available to read
-//        FD_SET(backchannel_fd, &readfds);
+        // always resume when status data is available to read
+        FD_SET(status_fd, &readfds);
 
         // resume when print data is available to read
         // only if we want data and the buffer is empty
@@ -131,10 +161,69 @@ int main (int argc, char *argv[]) {
         }
 
 
-        // process backchannel data, if any is available
-//        if (FD_ISSET(backchannel_fd, &readfds)) {
-//            // TODO: handle backchannel data
-//        }
+        // read status data, if any is available
+        if (status_bytes == 0 && FD_ISSET(status_fd, &readfds)) {
+            bytes = read(status_fd, status_buffer, sizeof(status_buffer));
+            if (bytes < 0) {
+                // read error
+                if (errno == EAGAIN || errno == EINTR) {
+                    // error is transient - try again
+                    // we want to read status before sending more print data
+                    continue;
+                } else {
+                    // error is permanent - bail immediately
+                    fprintf(stderr,
+                            "DEBUG: pjl: status read failed: %s\n",
+                            strerror(errno)
+                        );
+                    fprintf(stderr, "ERROR: Unable to read status data.\n");
+                    return 1;
+                }
+            } else if (bytes == 0) {
+                // end of file - bail immediately
+                fprintf(stderr, "DEBUG: pjl: backchannel reached EOF\n");
+                fprintf(stderr, "ERROR: Unable to read status data.\n");
+                return 1;
+            } else {
+                // all good - get the buffer ready to parse
+#             ifdef DEBUG
+                fprintf(stderr, "DEBUG2: pjl: read %d status bytes\n", bytes);
+#             endif
+                status_bytes = bytes;
+                status_ptr = status_buffer;
+            }
+        }
+
+
+        // parse status data if any is in the buffer
+        for (; status_bytes > 0; status_ptr++, status_bytes--) {
+            input_char = *status_ptr;
+            input_val.charval = input_char;
+
+            if (input_char > '~') {
+                // Roman-8 characters that don't map to ASCII
+                input_char = TOK_CHAR;
+            } else if (input_char < '\t' || input_char == '\v') {
+                // control characters not used in grammar rules
+                input_char = TOK_CTL;
+            }
+
+            result = yypush_parse( parser, input_char, &input_val, &status );
+            if (result != YYPUSH_MORE) {
+                fprintf(stderr,
+                        "DEBUG: pjl: status parser returned %d\n",
+                        result
+                    );
+                fprintf(stderr, "ERROR: internal error in PJL filter\n");
+                return 1;
+            }
+
+            switch (status.type) {
+            case STATUS_TYPE_NONE:
+                // the parser needs more input
+                continue;
+            }
+        }
 
 
         // read print data into the buffer
@@ -147,7 +236,7 @@ int main (int argc, char *argv[]) {
                 // bail immediately unless the error is transient
                 if (errno != EAGAIN && errno != EINTR) {
                     fprintf(stderr,
-                            "DEBUG: pjl: read failed: %s\n",
+                            "DEBUG: pjl: print read failed: %s\n",
                             strerror(errno)
                         );
                     fprintf(stderr, "ERROR: Unable to read print data.\n");
