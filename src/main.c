@@ -198,7 +198,7 @@ int main (int argc, char *argv[]) {
         // parse status data if any is in the buffer
         for (; status_bytes > 0; status_ptr++, status_bytes--) {
             input_char = *status_ptr;
-            input_val.charval = input_char;
+            input_val.character = input_char;
 
             if (input_char > '~') {
                 // Roman-8 characters that don't map to ASCII
@@ -219,7 +219,7 @@ int main (int argc, char *argv[]) {
             }
 
             switch (status.type) {
-            case STATUS_TYPE_NONE:
+            case STYPE_NONE:
                 // the parser needs more input
                 continue;
             }

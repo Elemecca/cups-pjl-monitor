@@ -1,5 +1,6 @@
 %{
 #include <stdint.h>
+#include <string.h>
 #include "status.h"
 %}
 
@@ -31,24 +32,78 @@
 %parse-param {status_report_t *result}
 
 
-
 %union {
-    uint8_t charval;
+    uint8_t character;
+    string_t string;
+
+    int_fast32_t integer;
+    /*
+    double fraction;
+    number_t number;
+    */
+
+    int boolean;
+
+    status_report_t *report;
+}
+
+%destructor { free( $$.buffer ); } <string>
+%destructor { free( $$ ); } <report>
+
+%code provides {
+#define NEW_REPORT(var, stype) \
+    var = malloc( sizeof(status_report_t) ); \
+    if (NULL == var) { \
+        yyerror( result, "error allocating report object" ); \
+        YYABORT; \
+    } \
+    memset( var, 0, sizeof(status_report_t) ); \
+    var->type = (stype);
 }
 
 
-
 /* Roman-8 characters that don't map to ASCII */
-%token <charval> TOK_CHAR
+%token <character> TOK_CHAR
 
 /* control characters not used in grammar rules */
-%token <charval> TOK_CTL
+%token <character> TOK_CTL
 
+/* declare type for all character tokens used */
+%type <character> '\t' '\n' '\f' '\r'
+%type <character> ' ' '!' '"' '#' '$' '%' '&' '(' ')' '*' '+' ',' '-'
+%type <character> '.' '/' '0' '1' '2' '3' '4' '5' '6' '7' '8' '9' ':'
+%type <character> ';' '<' '=' '>' '?' '@' 'A' 'B' 'C' 'D' 'E' 'F' 'G'
+%type <character> 'H' 'I' 'J' 'K' 'L' 'M' 'N' 'O' 'P' 'Q' 'R' 'S' 'T'
+%type <character> 'U' 'V' 'W' 'X' 'Y' 'Z' '[' ']' '^' '_' '`' 'a' 'b'
+%type <character> 'c' 'd' 'e' 'f' 'g' 'h' 'i' 'j' 'k' 'l' 'm' 'n' 'o'
+%type <character> 'p' 'q' 'r' 's' 't' 'u' 'v' 'w' 'x' 'y' 'z' '{' '|'
+%type <character> '}' '~' '\'' '\\'
 
 
 %start reports
 
+%type <character> c_alpha_uc c_alpha_lc c_alpha c_digit c_alnum
+%type <character> c_sym_noquot c_sym c_printable WS
+
+%type <integer> num_natural num_digit
+/*
+%type <number> number
+%type <integer> num_int num_sign num_natural
+%type <fraction> num_decimal num_fraction
+*/
+
+%type <string> string str_chars words
+%type <character> str_char words_char
+%type <boolean> boolean;
+
+
+%type <report> report command echo
+%type <report> ustatus ustatus_var info info_cat
+%type <report> dev_vars job_vars page_val;
+
 %%
+
+empty: /* empty */;
 
 /* letter pseudo-terminals for case-insensitivity */
 A: 'A' | 'a';
@@ -86,7 +141,7 @@ LF: '\n' | '\r' '\n'
 
 WS: ' ' | '\t';
 ws: WS | ws WS;
-ows: /* empty */ | ws;
+ows: empty | ws;
 
 
 
@@ -139,61 +194,187 @@ TRUE:       T R U E;
 USTATUS:    U S T A T U S;
 
 
+/*
+number: num_int num_decimal {
+            $$.integer  = $1;
+            $$.fraction = $2;
+        }
+    ;
 
-number: num_sign c_digit num_digits num_decimal;
-num_sign: /* empty */ | '+' | '-';
-num_digits: /* empty */ | num_digits c_digit;
-num_decimal: /* empty */ | '.' num_digits;
+num_int: num_sign num_natural { $$ = $1 * $2; };
 
-string: '"' str_chars '"';
-str_chars: /* empty */ | str_chars str_char;
-str_char: c_alnum | c_sym;
+num_sign:
+      empty   { $$ =  1; }
+    | '+'           { $$ =  1; }
+    | '-'           { $$ = -1; }
+    ;
+*/
 
-boolean: TRUE | FALSE;
+num_natural:
+      num_digit { $$ = $1; }
+    | num_natural num_digit {
+            if ($1 > (INT_FAST32_MAX - 10) / 10) {
+                yyerror( result, "integer overflow in number literal" );
+                YYERROR;
+            } else {
+                $$ = $1 * 10 + $2;
+            }
+        }
+    ;
+
+/*
+num_decimal:
+      empty       { $$ = 0; }
+    | '.'               { $$ = 0; }
+    | '.' num_fraction  { $$ = $2; }
+    ;
+
+ * must be right-recursive to calculate properly
+ * since the least-significant digit is on the right
+ *
+num_fraction:
+      num_digit { $$ = $1 / 10; }
+    | num_digit num_fraction {
+            $$ = ((double)$1) / 10 + $2 / 10;
+        }
+    ;
+*/
+
+num_digit: c_digit { $$ = $1 - '0'; };
 
 
 
-reports: report
-       | reports report
-       | error FF /* on a syntax error, discard until the next FF */
-       ;
+string:
+    '"' str_chars '"' {
+            $$.buffer = $2.buffer;
+            $$.count  = $2.count;
+        }
+    ;
 
-report: PJL ws command FF;
+str_chars:
+    empty {
+            $$.count = 0;
+
+            $$.buffer = malloc( STR_BUFFER_LEN );
+            if (NULL == $$.buffer) {
+                yyerror( result, "error allocating string buffer" );
+                YYABORT;
+            }
+
+            memset( $$.buffer, 0, STR_BUFFER_LEN );
+        }
+    | str_chars str_char {
+            if ($1.count >= STR_BUFFER_LEN) {
+                yyerror( result, "buffer overflow in string literal" );
+                YYERROR;
+            } else {
+                $$.buffer = $1.buffer;
+                $$.count  = $1.count;
+                $$.buffer[ $$.count++ ] = $2;
+            }
+        }
+    ;
+
+str_char: c_alnum | c_sym_noquot | WS | TOK_CHAR;
+
+
+
+words:
+     c_printable {
+            $$.count = 0;
+
+            $$.buffer = malloc( STR_BUFFER_LEN );
+            if (NULL == $$.buffer) {
+                yyerror( result, "error allocating string buffer" );
+                YYABORT;
+            }
+
+            memset( $$.buffer, 0, STR_BUFFER_LEN );
+        }
+    | words words_char {
+            if ($1.count >= STR_BUFFER_LEN) {
+                yyerror( result, "buffer overflow in string literal" );
+                YYERROR;
+            } else {
+                $$.buffer = $1.buffer;
+                $$.count  = $1.count;
+                $$.buffer[ $$.count++ ] = $2;
+            }
+        }
+    ;
+
+words_char: c_printable | WS;
+
+
+
+boolean:
+      TRUE  { $$ = 1; }
+    | FALSE { $$ = 0; }
+    ;
+
+
+
+reports:
+      empty
+    | reports report {
+            memcpy( result, $2, sizeof(status_report_t) );
+            free( $2 );
+            YYACCEPT;
+        }
+    | reports error FF /* on a syntax error, discard until the next FF */
+    ;
+
+report: PJL ws command FF { $$ = $3; };
 command: ustatus | info | echo;
 
-ustatus: USTATUS ws ustatus_var;
-ustatus_var: ustatus_dev | ustatus_job | ustatus_page | ustatus_timed;
-ustatus_dev:   DEVICE ows LF dev_vars;
-ustatus_timed: TIMED  ows LF dev_vars;
-ustatus_job:   JOB    ows LF job_vars;
-ustatus_page:  PAGE   ows LF page_val;
+ustatus: USTATUS ws ustatus_var { $$ = $3; };
+ustatus_var:
+      DEVICE ows LF dev_vars { $$ = $4; }
+    | TIMED  ows LF dev_vars { $$ = $4; }
+    | JOB    ows LF job_vars { $$ = $4; }
+    | PAGE   ows LF page_val { $$ = $4; }
+    ;
 
 
-info: INFO ws info_cat;
-info_cat: info_status;
-info_status: STATUS ows LF dev_vars;
+info: INFO ws info_cat { $$ = $3; };
+info_cat:
+      STATUS ows LF dev_vars { $$ = $4; }
+    ;
 
-echo: ECHO ows echo_msg LF;
-echo_msg: c_printable | echo_msg echo_char;
-echo_char: c_printable | WS;
-
-
-dev_vars: dev_var | dev_vars dev_var;
-dev_var: CODE '=' number LF
-       | DISPLAY '=' string LF
-       | ONLINE '=' boolean LF
-       | error LF /* on a syntax error, discard until the next LF */
-       ;
+echo: ECHO ows words LF {
+            NEW_REPORT( $$, STYPE_ECHO )
+            $$->echo = $3;
+        }
+    ;
 
 
-job_vars: job_act LF
-        | job_vars job_var
-        ;
-job_act: END | START;
-job_var: ID '=' number LF
-       | NAME '=' string LF
-       | PAGES '=' number LF
-       | error LF /* on a syntax error, discard until the next LF */
-       ;
 
-page_val: number LF;
+dev_vars:
+      empty { NEW_REPORT( $$, STYPE_DEVICE ) }
+    | dev_vars CODE '=' num_natural LF
+        { $$ = $1; $$->device.status = $4; }
+    | dev_vars DISPLAY '=' string LF
+        { $$ = $1; $$->device.display = $4; }
+    | dev_vars ONLINE '=' boolean LF
+        { $$ = $1; $$->device.online  = $4; }
+    | dev_vars error LF /* on a syntax error, discard until the next LF */
+    ;
+
+
+job_vars:
+      START LF { NEW_REPORT( $$, STYPE_JOB_START ) }
+    | END   LF { NEW_REPORT( $$, STYPE_JOB_END ) }
+    | job_vars ID '=' num_natural LF
+        { $$ = $1; $$->job.id = $4; }
+    | job_vars NAME '=' string LF
+        { $$ = $1; $$->job.name = $4; }
+    | job_vars PAGES '=' num_natural LF
+        { $$ = $1; $$->job.pages = $4; }
+    | job_vars error LF /* on a syntax error, discard until the next LF */
+    ;
+
+page_val: num_natural LF {
+            NEW_REPORT( $$, STYPE_PAGES )
+            $$->pages = $1;
+        }
+    ;
