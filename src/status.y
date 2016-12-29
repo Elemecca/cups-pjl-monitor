@@ -7,6 +7,7 @@
 /* version constraints:
  *   2.3b  push-parsing mode
  *   2.3b  %code declaration
+ *   2.3b  %language declaration
  *   2.5   lookahead correction (LAC)
  *   2.5   named references
  * also, Ubuntu precise and Debian wheezy only have 2.5
@@ -26,6 +27,10 @@
 %error-verbose
 %define parse.lac full
 
+/* This is the default, but declaring it explicitly prevents
+ * Bison <3.0 from inserting semicolons at the end of actions.
+ */
+%language "C"
 
 
 /* add an out parameter to return parsed reports */
